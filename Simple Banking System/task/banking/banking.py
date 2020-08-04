@@ -1,4 +1,22 @@
 import random
+import sqlite3
+
+
+conn = sqlite3.connect("card.s3db")
+cur = conn.cursor()
+
+cur.execute("""CREATE TABLE IF NOT EXISTS card (
+id INTEGER PRIMARY KEY AUTOINCREMENT UNIQUE,
+number TEXT,
+pin TEXT,
+balance INTEGER DEFAULT 0);
+""")
+
+try:
+    cur.execute("""SELECT number, pin FROM card;""")
+    existing_card_nums = {key: value for key, value in cur.fetchall()}
+except:
+    existing_card_nums = {}
 
 
 def create_account():
@@ -44,6 +62,8 @@ def create_account():
         else:
             card_pin = random.randint(0, 9999)
             existing_card_nums[card_num] = card_pin
+            cur.execute("""INSERT INTO card (number, pin) VALUES (?,?)""", (card_num, card_pin))
+            conn.commit()
             return card_num, card_pin
 
 
@@ -55,7 +75,6 @@ def log_in(card_num, card_pin):
         return None
 
 
-existing_card_nums = {}
 while True:
     print("1. Create an account\n2. Log into account\n0. Exit")
     user_choice = input()
@@ -80,4 +99,8 @@ while True:
         else:
             print("Wrong card number or PIN!")
     elif user_choice == "0":
-        quit()
+        print("Bye!")
+        break
+
+conn.close()
+quit()

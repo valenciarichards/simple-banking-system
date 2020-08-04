@@ -1,3 +1,4 @@
 .idea
 *.yaml
-/Problems
+/Problems/
+*.s3db
