@@ -5,21 +5,26 @@ import sqlite3
 conn = sqlite3.connect("card.s3db")
 cur = conn.cursor()
 
+cur.execute("""DROP TABLE IF EXISTS card;""")
+
 cur.execute("""CREATE TABLE IF NOT EXISTS card (
-id INTEGER PRIMARY KEY AUTOINCREMENT UNIQUE,
+id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
 number TEXT,
 pin TEXT,
 balance INTEGER DEFAULT 0);
 """)
 
+
 try:
-    cur.execute("""SELECT number, pin FROM card;""")
-    existing_card_nums = {key: value for key, value in cur.fetchall()}
+    cur.execute("""SELECT number, pin, balance FROM card;""")
+    existing_card_nums = {number: {"pin": pin, "balance": balance} for number, pin, balance in cur.fetchall()}
+
 except:
     existing_card_nums = {}
 
 
 def create_account():
+
     while True:
         issuer_id = 400000
         customer_id = random.randint(0, 999999999)
@@ -27,57 +32,103 @@ def create_account():
         if customer_id < 100000000:
             customer_id = "%09d" % customer_id
         issuer_and_customer_ids = str(issuer_id) + str(customer_id)
-        issuer_and_customer_ids_list = [int(digit) for digit in issuer_and_customer_ids]
-        # Implement Luhn Algorithm to generate the checksum.
-        # 1. Multiply odd digits by 2.
-        odd_digits_doubled = []
-        for index, digit in enumerate(issuer_and_customer_ids_list):
-            multiple = 1
-            if index % 2 == 0:
-                multiple = 2
-            odd_digits_doubled.append(digit * multiple)
-        # 2. Subtract 9 from numbers > 9.
-        nine_subtracted = []
-        for digit in odd_digits_doubled:
-            subtract = 0
-            if digit > 9:
-                subtract = 9
-            nine_subtracted.append(digit - subtract)
-        # 3. Add all numbers.
-        total = 0
-        for digit in nine_subtracted:
-            total += digit
-        # 4. Generate the checksum so that the sum of all digits is divisible by 10.
-        if total % 10 == 0:
-            checksum = 0
-        else:
-            units_digit = int(str(total)[-1])
-            checksum = 10 - units_digit
-        # print("total = {}, checksum = {}".format(total, checksum))
-        card_num = int(str(issuer_id) + str(customer_id) + str(checksum))
+        card_num = int(str(issuer_id) + str(customer_id) + str(get_checksum(int(issuer_and_customer_ids))))
         # If the card number is not unique, generate a new card number.
         # Otherwise, add it to the dictionary of existing card numbers.
         if card_num in existing_card_nums:
             continue
         else:
             card_pin = random.randint(0, 9999)
-            existing_card_nums[card_num] = card_pin
-            cur.execute("""INSERT INTO card (number, pin) VALUES (?,?)""", (card_num, card_pin))
+            existing_card_nums[card_num] = {"pin": card_pin, "balance": 0}
+            cur.execute("""INSERT INTO card (number, pin, balance) VALUES (?,?,?)""", (card_num, card_pin, 0))
             conn.commit()
             return card_num, card_pin
 
 
 def log_in(card_num, card_pin):
+
     try:
-        if existing_card_nums[card_num] == card_pin:
+        if existing_card_nums[card_num]["pin"] == card_pin:
             return card_num
     except KeyError:
         return None
 
 
+def get_account_balance(account):
+
+    return existing_card_nums[account]["balance"]
+
+
+def deposit_money(account, amount):
+
+    existing_card_nums[account]["balance"] = existing_card_nums[account].get("balance", 0) + amount
+    new_balance = existing_card_nums[account]["balance"]
+    cur.execute("""UPDATE card SET balance = ? WHERE number = ?;""", (new_balance, account))
+    conn.commit()
+    return "Income was added!"
+
+
+def transfer_money(from_account, to_account, amount_to_transfer):
+
+    from_account_balance = existing_card_nums[from_account]["balance"]
+    to_account_balance = existing_card_nums[from_account]["balance"]
+    if from_account_balance < amount_to_transfer:
+        return "Not enough money!"
+    else:
+        from_account_balance -= amount_to_transfer
+        to_account_balance += amount_to_transfer
+        cur.executescript("""
+        UPDATE card (balance) VALUES (?) WHERE number = ?;
+        UPDATE card (balance) VALUES (?) WHERE number = ?;
+        """, (from_account_balance, from_account, to_account_balance, to_account))
+        conn.commit()
+        return "Success!"
+
+
+def get_checksum(num):
+
+    list_of_nums = [int(digit) for digit in str(num)]
+    # Implement Luhn Algorithm to generate the checksum.
+    # 1. Multiply odd digits by 2.
+    odd_digits_doubled = []
+    for index, digit in enumerate(list_of_nums):
+        multiple = 1
+        if index % 2 == 0:
+            multiple = 2
+        odd_digits_doubled.append(digit * multiple)
+    # 2. Subtract 9 from numbers > 9.
+    nine_subtracted = []
+    for digit in odd_digits_doubled:
+        subtract = 0
+        if digit > 9:
+            subtract = 9
+        nine_subtracted.append(digit - subtract)
+    # 3. Add all numbers.
+    total = 0
+    for digit in nine_subtracted:
+        total += digit
+    # 4. Generate the checksum so that the sum of all digits is divisible by 10.
+    if total % 10 == 0:
+        checksum = 0
+    else:
+        units_digit = int(str(total)[-1])
+        checksum = 10 - units_digit
+    return checksum
+
+
+def delete_account(account):
+
+    try:
+        del existing_card_nums[account]
+        cur.execute("""DELETE FROM card WHERE number = ?""", (account, ))
+        conn.commit()
+        return "The account has been closed!"
+    except KeyError:
+        return None
+
+
 while True:
-    print("1. Create an account\n2. Log into account\n0. Exit")
-    user_choice = input()
+    user_choice = input("1. Create an account\n2. Log into account\n0. Exit\n")
     if user_choice == "1":
         account_num, pin = create_account()
         print("\nYour card has been created")
@@ -88,14 +139,36 @@ while True:
         active_account = log_in(account_num, pin)
         if active_account is not None:
             print("\nYou have successfully logged in!\n")
-            logged_in_option = input("1. Balance\n2. Log out\n0. Exit\n")
-            if logged_in_option == "1":
-                print("Balance: 0")
-            elif logged_in_option == "2":
-                active_account = None
-                print("You have successfully logged out!")
-            elif logged_in_option == "0":
-                quit()
+            while active_account is not None:
+                logged_in_option = input("1. Balance\n2. Add income\n3. Do transfer\n4. Close account\n5. Log out\n0. Exit\n")
+                if logged_in_option == "1":
+                    print(get_account_balance(active_account))
+                elif logged_in_option == "2":
+                    income = int(input("\nEnter income:\n"))
+                    print(deposit_money(active_account, income))
+                elif logged_in_option == "3":
+                    transfer_account = int(input("Enter card number:\n"))
+                    last_digit = str(transfer_account)[-1]
+                    if get_checksum(transfer_account) == last_digit:
+                        if active_account == transfer_account:
+                            print("You can't transfer to the same account!")
+                            continue
+                        elif transfer_account not in existing_card_nums:
+                            print("Such a card does not exist. ")
+                            continue
+                        transfer_amount = int(input("Enter how much money you want to transfer: "))
+                        print(transfer_money(active_account, transfer_account, transfer_amount))
+                    else:
+                        print("Probably you made a mistake in the card number. Please try again! ")
+                        continue
+                elif logged_in_option == "4":
+                    print(delete_account(active_account))
+                elif logged_in_option == "5":
+                    active_account = None
+                    print("You have successfully logged out!")
+                elif logged_in_option == "0":
+                    active_account = None
+                    break
         else:
             print("Wrong card number or PIN!")
     elif user_choice == "0":
@@ -103,4 +176,3 @@ while True:
         break
 
 conn.close()
-quit()
