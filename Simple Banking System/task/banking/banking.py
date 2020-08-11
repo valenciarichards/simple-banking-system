@@ -5,7 +5,7 @@ import sqlite3
 conn = sqlite3.connect("card.s3db")
 cur = conn.cursor()
 
-# cur.execute("""DROP TABLE IF EXISTS card;""")
+cur.execute("""DROP TABLE IF EXISTS card;""")
 
 cur.execute("""CREATE TABLE IF NOT EXISTS card (
 id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
@@ -15,16 +15,7 @@ balance INTEGER DEFAULT 0);
 """)
 
 
-try:
-    cur.execute("""SELECT number, pin, balance FROM card;""")
-    existing_card_nums = {number: {"pin": pin, "balance": balance} for number, pin, balance in cur.fetchall()}
-
-except:
-    existing_card_nums = {}
-
-
 def get_checksum(num):
-
     list_of_nums = [int(digit) for digit in str(num)]
     # Implement Luhn Algorithm to generate the checksum.
     # 1. Multiply odd digits by 2.
@@ -55,7 +46,6 @@ def get_checksum(num):
 
 
 def create_account():
-
     while True:
         issuer_id = 400000
         customer_id = random.randint(0, 999999999)
@@ -65,65 +55,53 @@ def create_account():
         issuer_and_customer_ids = str(issuer_id) + str(customer_id)
         card_num = int(str(issuer_id) + str(customer_id) + str(get_checksum(int(issuer_and_customer_ids))))
         # If the card number is not unique, generate a new card number.
-        # Otherwise, add it to the dictionary of existing card numbers.
+        # Otherwise, add it to the database of existing card numbers.
+        cur.execute("""SELECT number FROM card;""")
+        existing_card_nums = cur.fetchall()
         if card_num in existing_card_nums:
             continue
         else:
             card_pin = random.randint(0, 9999)
-            existing_card_nums[card_num] = {"pin": card_pin, "balance": 0}
-            cur.execute("""INSERT INTO card (number, pin) VALUES (?,?)""", (card_num, card_pin))
+            cur.execute("""INSERT INTO card (number, pin) VALUES (?,?);""", (card_num, card_pin))
             conn.commit()
             return card_num, card_pin
 
 
 def log_in(card_num, card_pin):
-
-    try:
-        if existing_card_nums[card_num]["pin"] == card_pin:
-            return card_num
-    except KeyError:
+    cur.execute("""SELECT number, pin FROM card WHERE number = ? AND pin = ?;""", (card_num, card_pin))
+    if cur.fetchone() is None:
         return None
+    else:
+        return card_num
 
 
 def get_account_balance(account):
-
-    return existing_card_nums[account]["balance"]
+    cur.execute("""SELECT balance FROM card WHERE number = ?""", (account,))
+    account_balance = int(cur.fetchone()[0])
+    return account_balance
 
 
 def deposit_money(account, amount):
-
-    existing_card_nums[account]["balance"] = existing_card_nums[account].get("balance", 0) + amount
-    new_balance = existing_card_nums[account]["balance"]
-    cur.execute("""UPDATE card SET balance = ? WHERE number = ?;""", (new_balance, account))
+    cur.execute("""UPDATE card SET balance = balance + ? WHERE number = ?;""", (amount, account))
     conn.commit()
     return "Income was added!"
 
 
 def transfer_money(from_account, to_account, amount):
-    from_account_balance = get_account_balance(from_account)
-    to_account_balance = get_account_balance(to_account)
-    from_account_balance -= amount
-    existing_card_nums[from_account]["balance"] = from_account_balance
-    cur.execute("""UPDATE card SET balance = ? WHERE number = ?;""", (from_account_balance, from_account))
+    cur.execute("""UPDATE card SET balance = balance - ? WHERE number = ?;""", (amount, from_account))
     conn.commit()
-    to_account_balance += amount
-    existing_card_nums[to_account]["balance"] = to_account_balance
-    cur.execute("""UPDATE card SET balance = ? WHERE number = ?;""", (to_account_balance, to_account))
+    cur.execute("""UPDATE card SET balance = balance + ? WHERE number = ?;""", (amount, to_account))
     conn.commit()
     return "Success!"
 
 
 def delete_account(account):
-
-    try:
-        del existing_card_nums[account]
-        cur.execute("""DELETE FROM card WHERE number = ?""", (account, ))
-        conn.commit()
-        return "The account has been closed!"
-    except KeyError:
-        return None
+    cur.execute("""DELETE FROM card WHERE number = ?""", (account, ))
+    conn.commit()
+    return "The account has been closed!"
 
 
+active_account = None
 while True:
     user_choice = input("1. Create an account\n2. Log into account\n0. Exit\n")
     if user_choice == "1":
@@ -131,8 +109,8 @@ while True:
         print("\nYour card has been created")
         print("Your card number:\n{}\nYour card PIN:\n{}\n".format(account_num, "%04d" % pin))
     elif user_choice == "2":
-        account_num = int(input("\nEnter your card number:\n"))
-        pin = int(input("Enter your PIN:\n"))
+        account_num = input("\nEnter your card number:\n")
+        pin = input("Enter your PIN:\n")
         active_account = log_in(account_num, pin)
         if active_account:
             print("\nYou have successfully logged in!")
@@ -148,16 +126,17 @@ while True:
                     active_account_balance = get_account_balance(active_account)
                     if active_account_balance <= 0:
                         print("Not enough money!")
-                    transfer_account = int(input("Enter card number:\n"))
+                    transfer_account = input("Enter card number:\n")
                     if active_account == transfer_account:
                         print("You can't transfer to the same account!")
                         continue
-                    last_digit = str(transfer_account)[-1]
+                    last_digit = int(transfer_account[-1])
                     if get_checksum(transfer_account) != last_digit:
-                        print("Such a card does not exist. Probably you made mistake in the card number. Please try again!")
+                        print("Probably you made mistake in the card number. Please try again!")
                         continue
-                    if transfer_account not in existing_card_nums:
-                        print("Such a card does not exist. Probably you made mistake in the card number. Please try again!")
+                    cur.execute("""SELECT number FROM card;""")
+                    if transfer_account not in cur.fetchall():
+                        print("Such a card does not exist.")
                         continue
                     transfer_amount = int(input("Enter how much money you want to transfer: "))
                     if active_account_balance < transfer_amount:
@@ -166,6 +145,8 @@ while True:
                     print(transfer_money(active_account, transfer_account, transfer_amount))
                 elif logged_in_option == "4":
                     print(delete_account(active_account))
+                    active_account = None
+                    break
                 elif logged_in_option == "5":
                     active_account = None
                     print("You have successfully logged out!")
