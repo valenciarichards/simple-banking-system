@@ -2,3 +2,4 @@
 *.yaml
 /Problems/
 *.s3db
+*venv
