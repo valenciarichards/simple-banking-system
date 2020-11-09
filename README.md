@@ -14,12 +14,19 @@ This application utilizes the random and SQLite modules, and was built as a JetB
 
 
 ## How to use
-Download the repository, navigate to the directory containing "banking.py", and run:
+Download the repository, navigate to the directory containing "banking.py", and run
+
+on Mac or Linux:
 
 ```
-  python3 banking.py
+python3 banking.py
 ```
+on Windows:
+
+```
+python banking.py
+```
+
 
 ## License
 The source code is distributed under the MIT License.
-SQLite is in the public domain.
