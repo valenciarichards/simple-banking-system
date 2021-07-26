@@ -1,4 +1,4 @@
-# simple-banking-system
+# Simple Banking System
 
 A banking database app for a fictional bank that allows you to:
 
